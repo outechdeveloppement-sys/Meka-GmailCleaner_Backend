@@ -2,8 +2,10 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 
-# Configuration de l'environnement (doit être fait AVANT les autres imports)
-if os.getenv("SSL_CERT_FILE"):
+import platform
+
+# Configuration de l'environnement (Sécurité pour le déploiement sur Render/Linux)
+if platform.system() == "Windows" and os.getenv("SSL_CERT_FILE"):
     os.environ["SSL_CERT_FILE"] = os.getenv("SSL_CERT_FILE")
     os.environ["REQUESTS_CA_BUNDLE"] = os.getenv("SSL_CERT_FILE")
 
