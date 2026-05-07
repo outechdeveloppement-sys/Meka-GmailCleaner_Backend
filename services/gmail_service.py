@@ -113,6 +113,10 @@ async def clean_mailbox(uid: str, tokens: Dict, rules: List[Dict]) -> Dict[str, 
 
 async def get_mailbox_stats(tokens: Dict) -> Dict[str, Any]:
     """Récupère les statistiques réelles de la boîte mail (Analyse étendue à 4000+ mails)."""
+    import time
+    start_time = time.time()
+    
+    print("DEBUG: Initialisation du service Gmail pour les stats...")
     service = get_gmail_service(tokens['access_token'], tokens.get('refresh_token'))
     
     # 1. Infos globales du profil
@@ -125,7 +129,8 @@ async def get_mailbox_stats(tokens: Dict) -> Dict[str, Any]:
     next_page_token = None
     target_count = 4000
     
-    print(f"Début de la récupération des IDs (Cible: {target_count})...")
+    print(f"DEBUG: Récupération des IDs (Cible: {target_count})...")
+    list_start = time.time()
     while len(all_messages) < target_count:
         results = service.users().messages().list(
             userId='me', 
@@ -139,9 +144,9 @@ async def get_mailbox_stats(tokens: Dict) -> Dict[str, Any]:
         if not next_page_token:
             break
             
-    print(f"{len(all_messages)} messages trouvés.")
+    print(f"DEBUG: {len(all_messages)} messages trouvés en {time.time() - list_start:.2f}s.")
     
-    # 3. Analyse par batch pour les expéditeurs (on analyse un échantillon large de 500 pour les stats d'expéditeurs)
+    # 3. Analyse par batch pour les expéditeurs
     top_senders = {}
     sample_size = min(len(all_messages), 500) 
     sample_messages = all_messages[:sample_size]
@@ -153,18 +158,25 @@ async def get_mailbox_stats(tokens: Dict) -> Dict[str, Any]:
             if '<' in sender:
                 sender = sender.split('<')[1].split('>')[0]
             top_senders[sender] = top_senders.get(sender, 0) + 1
+        else:
+            print(f"DEBUG BATCH ERROR: {exception}")
 
-    print(f"Analyse de l'échantillon de {sample_size} messages...")
+    print(f"DEBUG: Analyse de l'échantillon de {sample_size} messages via batch HTTP...")
+    batch_start = time.time()
     batch = service.new_batch_http_request(callback=batch_callback)
     for m in sample_messages:
         batch.add(service.users().messages().get(userId='me', id=m['id'], format='metadata', metadataHeaders=['From']))
     
     batch.execute()
-
-    return {
+    print(f"DEBUG: Batch terminé en {time.time() - batch_start:.2f}s.")
+    
+    stats_result = {
         "total_messages": total_messages,
         "email": email_address,
         "top_senders": dict(sorted(top_senders.items(), key=lambda x: x[1], reverse=True)[:50]), # Top 50 senders
         "total_analyzed": len(all_messages),
         "sample_size": sample_size
     }
+    
+    print(f"DEBUG: get_mailbox_stats terminé en {time.time() - start_time:.2f}s au total.")
+    return stats_result

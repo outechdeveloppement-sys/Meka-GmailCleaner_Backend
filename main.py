@@ -22,12 +22,23 @@ from routes import auth, analyze, clean
 
 app = FastAPI(title="GmailCleaner API")
 
+# Configuration CORS ultra-flexible pour Vercel et Local
+origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://meka-gmail-cleaner-frontend-o3fd.vercel.app",
+]
+
+# Ajout dynamique de l'URL d'environnement
+env_url = os.getenv("FRONTEND_URL")
+if env_url:
+    origins.append(env_url.rstrip("/"))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        os.getenv("FRONTEND_URL", "*")
-    ],
+    allow_origins=origins,
+    # Autorise tous les domaines Vercel de ton projet (preview et prod)
+    allow_origin_regex=r"https://meka-gmail-cleaner-frontend.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

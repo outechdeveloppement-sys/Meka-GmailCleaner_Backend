@@ -10,6 +10,7 @@ KIMI_API_URL = os.getenv("KIMI_API_URL", "https://api.moonshot.cn/v1/chat/comple
 async def get_kimi_suggestions(mailbox_stats: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Appelle Kimi API pour obtenir un nombre illimité de suggestions de règles intelligentes."""
     
+    print(f"DEBUG: Préparation du prompt pour {mailbox_stats.get('email')}")
     prompt_system = (
         "Tu es l'agent IA 'Meka', un expert mondial en productivité et gestion d'emails. "
         "Ton rôle est d'analyser les statistiques approfondies d'une boîte mail (basées sur l'analyse de milliers de messages) "
@@ -45,27 +46,45 @@ async def get_kimi_suggestions(mailbox_stats: Dict[str, Any]) -> List[Dict[str, 
     }
     
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        print(f"DEBUG: Envoi de la requête à Kimi ({KIMI_API_URL})...")
+        async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.post(KIMI_API_URL, json=payload, headers=headers)
-            response.raise_for_status()
+            
+            if response.status_code != 200:
+                print(f"ERROR: Kimi API a répondu {response.status_code}: {response.text}")
+                response.raise_for_status()
             
             result = response.json()
             content = result['choices'][0]['message']['content']
             
-            # Nettoyage du contenu si Kimi ajoute des backticks markdown
-            if content.startswith("```json"):
-                content = content.replace("```json", "").replace("```", "").strip()
+            print(f"DEBUG: Réponse brute de Kimi : {content[:200]}...")
             
-            suggestions = json.loads(content)
+            # Nettoyage et extraction robuste du JSON
+            import re
+            # On cherche le premier '[' et le dernier ']'
+            json_match = re.search(r'\[\s*\{.*\}\s*\]', content, re.DOTALL)
+            if json_match:
+                clean_content = json_match.group(0)
+                print("DEBUG: JSON extrait avec succès via regex.")
+            else:
+                # Fallback nettoyage classique
+                clean_content = content.replace("```json", "").replace("```", "").strip()
+                print("DEBUG: Pas de match regex, utilisation du nettoyage classique.")
+            
+            suggestions = json.loads(clean_content)
+            print(f"DEBUG: {len(suggestions)} suggestions parsées avec succès.")
             return suggestions
             
     except Exception as e:
-        print(f"Erreur Kimi API: {e}")
-        # Suggestions par dfaut en cas d'erreur
+        print(f"ERROR Kimi API: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        # Suggestions par défaut en cas d'erreur
         return [
             {
-                "name": "Anciennes newsletters",
-                "description": "Supprime les emails de plus de 6 mois",
+                "name": "Anciennes newsletters (Fallback)",
+                "description": "Supprime les emails de plus de 6 mois (Règle de secours suite à erreur IA)",
                 "conditions": {
                     "operator": "AND",
                     "filters": [{"field": "older_than", "value": "6m"}]
