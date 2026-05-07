@@ -35,19 +35,21 @@ SCOPES = [
     'https://mail.google.com/'
 ]
 
+from urllib.parse import urlencode
+
 @router.get("/google-login")
 async def google_login():
-    """Gnre l'URL d'autorisation Google."""
-    flow = Flow.from_client_config(
-        GOOGLE_CLIENT_CONFIG,
-        scopes=SCOPES,
-        redirect_uri=GOOGLE_CLIENT_CONFIG["web"]["redirect_uris"][0]
-    )
-    authorization_url, state = flow.authorization_url(
-        access_type='offline',
-        include_granted_scopes='true',
-        prompt='consent'
-    )
+    """Génère l'URL d'autorisation Google manuellement pour éviter PKCE."""
+    params = {
+        "client_id": GOOGLE_CLIENT_CONFIG["web"]["client_id"],
+        "redirect_uri": REDIRECT_URI,
+        "response_type": "code",
+        "scope": " ".join(SCOPES),
+        "access_type": "offline",
+        "prompt": "consent",
+        "include_granted_scopes": "true"
+    }
+    authorization_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
     return {"url": authorization_url}
 
 @router.post("/callback")
