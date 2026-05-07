@@ -56,27 +56,41 @@ async def auth_callback(request: Request):
     data = await request.json()
     code = data.get("code")
     
-    # Échange le code contre des tokens Google
+    # Échange le code contre des tokens Google via une requête directe
+    # (Plus robuste que Flow.fetch_token pour éviter les erreurs de PKCE/Code Verifier)
     try:
-        print(f"DEBUG: Tentative d'échange du code: {code[:10]}...")
-        flow = Flow.from_client_config(
-            GOOGLE_CLIENT_CONFIG,
-            scopes=SCOPES,
-            redirect_uri=REDIRECT_URI
-        )
-        flow.fetch_token(code=code)
-        creds = flow.credentials
+        print(f"DEBUG: Tentative d'échange du code via API directe...")
+        token_url = "https://oauth2.googleapis.com/token"
+        token_data = {
+            "code": code,
+            "client_id": GOOGLE_CLIENT_CONFIG["web"]["client_id"],
+            "client_secret": GOOGLE_CLIENT_CONFIG["web"]["client_secret"],
+            "redirect_uri": REDIRECT_URI,
+            "grant_type": "authorization_code",
+        }
+        
+        token_res = requests.post(token_url, data=token_data)
+        token_info = token_res.json()
+        
+        if "error" in token_info:
+            print(f"DEBUG: Erreur Google API: {token_info}")
+            raise Exception(f"{token_info.get('error')}: {token_info.get('error_description')}")
+            
+        access_token = token_info.get("access_token")
+        refresh_token = token_info.get("refresh_token")
+        expires_in = token_info.get("expires_in", 3600)
+        expiry = datetime.now() + timedelta(seconds=expires_in)
+        
         print("DEBUG: Échange de token réussi !")
     except Exception as e:
-        print(f"DEBUG: ÉCHEC ÉCHANGE TOKEN: {type(e).__name__}: {str(e)}")
-        # Si on a une erreur redirect_uri_mismatch, c'est que l'URL dans Google Console ne correspond pas
+        print(f"DEBUG: ÉCHEC ÉCHANGE TOKEN: {str(e)}")
         raise HTTPException(status_code=401, detail=f"Erreur Google: {str(e)}")
     
-    # RÉCUPÉRATION DIRECTE (Décision drastique : ignore l'horloge système)
+    # RÉCUPÉRATION DIRECTE DE L'IDENTITÉ
     try:
         userinfo_res = requests.get(
             "https://www.googleapis.com/oauth2/v3/userinfo",
-            headers={"Authorization": f"Bearer {creds.token}"}
+            headers={"Authorization": f"Bearer {access_token}"}
         )
         user_info = userinfo_res.json()
         
@@ -95,10 +109,9 @@ async def auth_callback(request: Request):
     if not email:
         raise HTTPException(status_code=400, detail="Impossible de récupérer l'email Google")
 
-    # 1. Créer ou récupérer l'utilisateur dans Firebase Auth (côté serveur)
+    # 1. Créer ou récupérer l'utilisateur dans Firebase Auth
     try:
         user = firebase_auth.get_user_by_email(email)
-        # Mettre à jour l'avatar si nécessaire
         firebase_auth.update_user(user.uid, display_name=display_name, photo_url=photo_url)
     except Exception:
         user = firebase_auth.create_user(
@@ -110,11 +123,12 @@ async def auth_callback(request: Request):
     uid = user.uid
 
     # 2. Sauvegarder les tokens Gmail
+    from services.firebase_service import save_user_tokens
     await save_user_tokens(
         uid, 
-        creds.token, 
-        creds.refresh_token, 
-        creds.expiry
+        access_token, 
+        refresh_token, 
+        expiry
     )
     
     # 3. Générer un Token Firebase Personnalisé pour le Frontend
